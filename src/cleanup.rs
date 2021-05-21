@@ -20,8 +20,12 @@ fn is_expired_serial(
     // An RRDP serial is "expired" if the RRDP 8182 Notification File by the
     // same serial number, or a later Notification File, was published by us
     // more than expiration_time seconds ago.
+    //
+    // i.e.
+    // A serial is expired when there exists a publication where `publication.serial` > serial
+    // and that publication was published after `expiration_time`.
     publication_timestamps.iter().any(|(pub_serial, pub_ts)| {
-        *pub_serial >= serial && *pub_ts < expiration_time
+        *pub_serial > serial && *pub_ts < expiration_time
     })
 }
 
