@@ -17,12 +17,16 @@ fn is_expired_serial(
     publication_timestamps: &PublicationTimestamps,
     expiration_time: SecondsSinceEpoch) -> bool
 {
-    // An RRDP serial is "expired" if the RRDP 8182 Notification File by the
-    // same serial number, or a later Notification File, was published by us
-    // more than expiration_time seconds ago.
-    publication_timestamps.iter().any(|(pub_serial, pub_ts)| {
-        *pub_serial >= serial && *pub_ts < expiration_time
-    })
+    // An RRDP serial is "expired" if its RRDP 8182 Notification File
+    // was published by us more than expiration_time seconds ago, and
+    // a newer publication exists.
+    if let Some(serial_pub_ts) = publication_timestamps.get(&serial) {
+        *serial_pub_ts < expiration_time &&
+            publication_timestamps.iter().any(|(_, pub_ts)| *pub_ts > *serial_pub_ts)
+    } else {
+        // Untracked in our state, don't bother
+        false
+    }
 }
 
 fn is_snapshot_file(entry: &DirEntry) -> Option<(PathBuf, RrdpSerialNumber)> {
@@ -196,7 +200,6 @@ pub fn cleanup_notification_files(
 pub fn cleanup_rsync_dirs(
     path_to_cleanup: &Path,
     cleanup_older_than_ts: SecondsSinceEpoch,
-    last_serial: RrdpSerialNumber,
     publication_timestamps: &mut PublicationTimestamps) -> Result<()>
 {
     debug!("Remove old rsync directory backups published before {}",
@@ -209,8 +212,6 @@ pub fn cleanup_rsync_dirs(
             let num_cleaned = WalkDir::new(&parent).max_depth(1).into_iter()
                 .filter_map(|e| is_rsync_backup_dir(&e.unwrap(), path_to_cleanup))
                     .inspect(|(path, serial)| trace!("Found rsync backup dir for serial {}: {:?}", serial, path))
-                .filter(|(_, serial)| is_old_serial(*serial, last_serial))
-                    .inspect(|(_, serial)| trace!("Serial {} is old", serial))
                 .filter(|(_, serial)| is_expired_serial(*serial, &pub_ts_copy, cleanup_older_than_ts))
                     .inspect(|(_, serial)| debug!("Rsync backup for serial {} is expired and will be deleted", serial))
                 .fold(0, |acc, (path, serial)| {
